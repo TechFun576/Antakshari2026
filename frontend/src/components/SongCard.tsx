@@ -2,13 +2,14 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Song } from '@/types';
-import { Play, Pause, ExternalLink, Music, RotateCcw, User } from 'lucide-react';
+import { Play, Pause, ExternalLink, Music, RotateCcw, User, Trash2 } from 'lucide-react';
 
 interface SongCardProps {
     song: Song;
+    onDelete?: (id: string) => void;
 }
 
-const SongCard: React.FC<SongCardProps> = ({ song }) => {
+const SongCard: React.FC<SongCardProps> = ({ song, onDelete }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
     const [duration, setDuration] = useState(0);
@@ -99,7 +100,21 @@ const SongCard: React.FC<SongCardProps> = ({ song }) => {
 
     return (
         <div className={`group relative w-full h-64 bg-card-bg/50 backdrop-blur-sm rounded-xl border overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-xl bg-gradient-to-br ${colorClass} flex flex-col`}>
-            <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+            <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-2">
+                {onDelete && (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Are you sure you want to delete this song?')) {
+                                onDelete(song._id);
+                            }
+                        }}
+                        className="p-1 rounded-full bg-red-500/20 hover:bg-red-500 text-red-200 hover:text-white transition-colors"
+                        title="Delete Song"
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                )}
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeClass}`}>
                     {song.language}
                 </span>

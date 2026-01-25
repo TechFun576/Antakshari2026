@@ -40,13 +40,17 @@ export default function Home() {
     setSongs(newSongs);
   };
 
-  const groupedSongs = {
-    Hindi: songs.filter(s => s.language === 'Hindi'),
-    Bengali: songs.filter(s => s.language === 'Bengali'),
-    English: songs.filter(s => s.language === 'English'),
-  };
+  // Dynamically group songs by language
+  const groupedSongs = songs.reduce((acc, song) => {
+    if (!acc[song.language]) {
+      acc[song.language] = [];
+    }
+    acc[song.language].push(song);
+    return acc;
+  }, {} as Record<string, Song[]>);
 
-  const languages = ['Hindi', 'Bengali', 'English'] as const;
+  // Get unique languages from grouped songs
+  const languages = Object.keys(groupedSongs);
 
   return (
     <AuthGuard>

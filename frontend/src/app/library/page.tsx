@@ -54,7 +54,28 @@ export default function Library() {
         }
     };
 
-    const tabs = ['All', 'Hindi', 'Bengali', 'English'];
+    const handleDeleteSong = async (id: string) => {
+        try {
+            const response = await api.delete<ApiResponse<any>>(`/songs/${id}`);
+            if (response.data.success) {
+                // Update local state to remove the deleted song
+                const updatedSongs = songs.filter(song => song._id !== id);
+                setSongs(updatedSongs);
+                // Also update filteredSongs if necessary, though useEffect will handle it based on 'songs' state change
+                // but setting it directly ensures immediate UI feedback if useEffect has dependencies
+                // Actually useEffect depends on [songs], so updating setSongs is enough.
+            } else {
+                alert(response.data.message || "Failed to delete song");
+            }
+        } catch (err: any) {
+            console.error("Failed to delete song:", err);
+            alert(err.response?.data?.message || "Failed to delete song");
+        }
+    };
+
+    // Get unique languages and add 'All'
+    const languages = Array.from(new Set(songs.map(s => s.language)));
+    const tabs = ['All', ...languages];
 
     return (
         <AuthGuard>
@@ -113,7 +134,7 @@ export default function Library() {
                             Array.from({ length: 8 }).map((_, i) => <SongSkeleton key={i} />)
                         ) : filteredSongs.length > 0 ? (
                             filteredSongs.map((song) => (
-                                <SongCard key={song._id} song={song} />
+                                <SongCard key={song._id} song={song} onDelete={handleDeleteSong} />
                             ))
                         ) : (
                             <div className="col-span-full py-20 text-center text-text-muted">

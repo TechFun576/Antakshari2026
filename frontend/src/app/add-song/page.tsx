@@ -68,7 +68,10 @@ export default function AddSong() {
 
         try {
             await api.post<ApiResponse<any>>('/songs', data, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: {
+                    'Content-Type': undefined // Let browser set multipart/form-data with boundary
+                },
+                timeout: 300000 // 5 minutes timeout for large files
             });
             router.push('/library'); // Redirect to library after adding
         } catch (err: any) {
@@ -77,7 +80,8 @@ export default function AddSong() {
             if (err.response && err.response.status === 409) {
                 alert(err.response.data.message || "A song with this name already exists. Please change the name.");
             } else {
-                alert("Failed to add song. Please try again.");
+                const errorMessage = err.response?.data?.message || err.message || "Unknown error";
+                alert(`Failed to add song: ${errorMessage}`);
             }
         } finally {
             setLoading(false);

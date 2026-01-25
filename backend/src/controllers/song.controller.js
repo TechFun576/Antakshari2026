@@ -1,6 +1,6 @@
 const Song = require('../models/Song');
 const ApiResponse = require('../utils/response.util');
-const { uploadOnCloudinary } = require('../utils/cloudinary');
+const { uploadOnCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 
 // @desc    Get all selected songs
 // @route   GET /api/songs/selected
@@ -22,8 +22,8 @@ exports.shuffleSongs = async (req, res) => {
         // 1. Reset all songs to unselected
         await Song.updateMany({}, { is_selected: false });
 
-        // 2. Select 5 random songs for each language
-        const languages = ['Hindi', 'Bengali', 'English'];
+        // 2. Select 5 random songs for each distinct language found in DB
+        const languages = await Song.distinct('language');
         let selectedIds = [];
 
         for (const lang of languages) {
@@ -58,23 +58,32 @@ exports.shuffleSongs = async (req, res) => {
 exports.addSong = async (req, res) => {
     try {
         const { name, artist, language, lyrics, album } = req.body;
+        
+        console.log("Received addSong request:", { name, artist, language });
+        console.log("File received:", req.file);
 
         // Check if file is uploaded
         if (!req.file) {
+             console.error("No file in request");
              return ApiResponse(res, 400, 'Song file is required');
         }
 
         if (!name || !artist || !language) {
+            console.error("Missing required fields");
             return ApiResponse(res, 400, 'Please provide name, artist, and language');
         }
 
         const songLocalPath = req.file.path;
+        console.log("Uploading to Cloudinary:", songLocalPath);
+        
         const songUpload = await uploadOnCloudinary(songLocalPath);
 
-        if (!songUpload) {
-             return ApiResponse(res, 500, 'Failed to upload song file');
-        }
+        // if (!songUpload) {
+        //      console.error("Cloudinary upload failed");
+        //      return ApiResponse(res, 500, 'Failed to upload song file');
+        // }
 
+        console.log("Cloudinary upload success:", songUpload.url);
         const url = songUpload.url;
 
         // Check for duplicate song name (case-insensitive)
@@ -121,6 +130,33 @@ exports.getAllSongs = async (req, res) => {
     try {
         const songs = await Song.find().sort({ createdAt: -1 });
         return ApiResponse(res, 200, 'All songs fetched', songs);
+    } catch (err) {
+        return ApiResponse(res, 500, err.message);
+    }
+};
+
+// @desc    Delete a song
+// @route   DELETE /api/songs/:id
+// @access  Protected
+exports.deleteSong = async (req, res) => {
+    try {
+        const song = await Song.findById(req.params.id);
+
+        if (!song) {
+            return ApiResponse(res, 404, 'Song not found');
+        }
+
+        // Extract public ID from Cloudinary URL
+        const urlParts = song.intro_audio_url.split('/');
+        const fileNameWithExt = urlParts[urlParts.length - 1]; 
+        const publicId = fileNameWithExt.split('.')[0]; 
+
+        // Delete from Cloudinary (assuming video type for audio)
+        await deleteFromCloudinary(publicId, 'video'); 
+
+        await Song.findByIdAndDelete(req.params.id);
+
+        return ApiResponse(res, 200, 'Song deleted successfully');
     } catch (err) {
         return ApiResponse(res, 500, err.message);
     }

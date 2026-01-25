@@ -33,7 +33,7 @@ const uploadOnCloudinary = async (localFilePath) => {
     if (fs.existsSync(localFilePath)) {
       fs.unlinkSync(localFilePath); // remove the locally saved temporary file as the upload operation got failed
     }
-    return null;
+    throw error; // Throw error so controller can return details
   }
 };
 
@@ -41,10 +41,10 @@ const uploadOnCloudinary = async (localFilePath) => {
  * Deletes a file from Cloudinary using its public ID.
  * @param {string} publicId - The public ID of the file to delete.
  */
-const deleteFromCloudinary = async (publicId) => {
+const deleteFromCloudinary = async (publicId, resourceType = 'image') => {
     try {
         if (!publicId) return null;
-        await cloudinary.uploader.destroy(publicId);
+        await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
     } catch (error) {
         console.error("Error deleting from cloud:", error);
     }
