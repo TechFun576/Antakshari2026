@@ -18,12 +18,9 @@ connectDB();
 const songRoutes = require('./routes/songRoutes');
 const authRoutes = require('./routes/authRoutes');
 
+console.log("Mounting Routes...");
 app.use('/api/songs', songRoutes);
 app.use('/api/auth', authRoutes);
-// Legacy/Direct route for shuffle compatibility if needed, but better to update frontend to use /api/songs/shuffle
-// Adding alias for frontend compatibility if strictly needed, or we update frontend.
-// Let's update frontend to point to /api/songs/shuffle and /api/songs/selected
-
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

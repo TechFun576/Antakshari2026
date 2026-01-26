@@ -3,6 +3,7 @@ const SystemState = require('../models/SystemState');
 const { FIXED_ROTATION } = require('../config/riggedSets');
 const ApiResponse = require('../utils/response.util');
 const { uploadOnCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
+const ADMIN_EMAIL = 'admin@gmail.com';
 
 // @desc    Get all selected songs
 // @route   GET /api/songs/selected
@@ -16,85 +17,129 @@ exports.getSelectedSongs = async (req, res) => {
     }
 };
 
-// @desc    Shuffle and select new random songs
-// @route   POST /api/songs/shuffle
+// @desc    Get current game state (Lock status & Locked Songs)
+// @route   GET /api/songs/state
 // @access  Public
-exports.shuffleSongs = async (req, res) => {
+exports.getGameState = async (req, res) => {
     try {
-        // 1. Reset all songs to unselected
-        await Song.updateMany({}, { is_selected: false });
+        const lockState = await SystemState.findOne({ key: "is_shuffle_locked" });
+        const isLocked = lockState ? (lockState.value === 1) : false;
 
-        // 2. Select 5 random songs for each distinct language found in DB
-        const languages = await Song.distinct('language');
-        let selectedIds = [];
-
-        for (const lang of languages) {
-            const songs = await Song.find({ language: lang });
-            if (!songs || songs.length === 0) continue;
-            
-            // Random shuffle
-            const shuffled = songs.sort(() => 0.5 - Math.random());
-            const selected = shuffled.slice(0, 5);
-            
-            selected.forEach(song => selectedIds.push(song._id));
+        let lockedSongs = [];
+        if (isLocked) {
+           lockedSongs = await Song.find({ is_selected: true });
         }
 
-        // 3. Update selected songs in DB
-        await Song.updateMany(
-            { _id: { $in: selectedIds } },
-            { is_selected: true }
-        );
+        return ApiResponse(res, 200, 'Game state fetched', { isLocked, lockedSongs });
+    } catch (err) {
+        return ApiResponse(res, 500, err.message);
+    }
+};
 
-        // 4. Return the new list
-        const newSelection = await Song.find({ is_selected: true });
-        return ApiResponse(res, 200, 'Songs shuffled successfully', newSelection);
+// @desc    Toggle Shuffle Lock (Admin Only)
+// @route   POST /api/songs/lock
+// @access  Protected (Admin)
+exports.toggleLock = async (req, res) => {
+    console.log("Toggle Lock Request from:", req.user?.email);
+    
+    if (req.user.email !== ADMIN_EMAIL) {
+        console.log("Toggle Lock Denied: Not Admin");
+        return ApiResponse(res, 403, 'Not authorized. Admin only.');
+    }
+
+    try {
+        let lockState = await SystemState.findOne({ key: "is_shuffle_locked" });
+        if (!lockState) {
+            lockState = await SystemState.create({ key: "is_shuffle_locked", value: 0 });
+        }
+
+        // Toggle value (0 -> 1, 1 -> 0)
+        lockState.value = lockState.value === 0 ? 1 : 0;
+        await lockState.save();
+
+        const isLocked = lockState.value === 1;
+        console.log("Lock Toggled. New State:", isLocked);
+        return ApiResponse(res, 200, `Shuffle ${isLocked ? 'Locked' : 'Unlocked'} successfully`, { isLocked });
 
     } catch (err) {
         return ApiResponse(res, 500, err.message);
     }
 };
 
-// @desc    Deterministic Shuffle Logic ("Evil Logic")
+// @desc    Dual Mode Shuffle
 // @route   POST /api/songs/shuffle
-// @access  Public
-exports.deterministicShuffle = async (req, res) => {
+// @access  Protected
+exports.dualModeShuffle = async (req, res) => {
     try {
-        // Step A: Get current shuffle index
-        let state = await SystemState.findOne({ key: "current_shuffle_index" });
+        const userEmail = req.user?.email;
+        const isAdmin = userEmail === ADMIN_EMAIL;
+        
+        console.log("Shuffle Request - User:", userEmail, "IsAdmin:", isAdmin);
 
-        if (!state) {
-            state = await SystemState.create({ key: "current_shuffle_index", value: 0 });
+        // Check Lock State
+        const lockState = await SystemState.findOne({ key: "is_shuffle_locked" });
+        const isLocked = lockState ? (lockState.value === 1) : false;
+
+        // --- ADMIN LOGIC ("Evil" / Deterministic) ---
+        if (isAdmin) {
+             // Admin can always shuffle, even if locked (Changing the locked set essentially)
+             console.log("Executing Admin Deterministic Shuffle");
+             return await deterministicShuffleInternal(req, res);
         }
 
-        const currentIndex = state.value;
+        // --- USER LOGIC ("Saint" / Random) ---
+        if (isLocked) {
+            return ApiResponse(res, 403, 'Shuffle is currently locked by Admin.');
+        }
 
-        // Step B: Select the list from FIXED_ROTATION
-        // Ensure index is within bounds, creating a safeguard
-        const safeIndex = currentIndex % FIXED_ROTATION.length;
-        const selectedShortCodes = FIXED_ROTATION[safeIndex];
-
-        // Step C: Update the main Song collection
-        // 1. Set is_selected: false for all
-        await Song.updateMany({}, { is_selected: false });
-
-        // 2. Set is_selected: true ONLY for the songs in the chosen list
-        await Song.updateMany(
-            { short_code: { $in: selectedShortCodes } },
-            { is_selected: true }
-        );
-
-        // Step D: Update SystemState
-        // Increment the index by 1. If it reaches 4, reset to 0 (Modulo 4)
-        state.value = (currentIndex + 1) % 4; // Hardcoded 4 as per requirements, or use FIXED_ROTATION.length
-        await state.save();
-
-        // Step E: Return the selected songs to the frontend
-        const newSelection = await Song.find({ is_selected: true });
-        return ApiResponse(res, 200, 'Songs shuffled successfully', newSelection);
+        return await randomShuffleInternal(req, res);
 
     } catch (err) {
         return ApiResponse(res, 500, err.message);
     }
+};
+
+// Internal Helper: Deterministic Evil Shuffle (Updates DB)
+const deterministicShuffleInternal = async (req, res) => {
+    // Step A: Get current shuffle index
+    let state = await SystemState.findOne({ key: "current_shuffle_index" });
+    if (!state) state = await SystemState.create({ key: "current_shuffle_index", value: 0 });
+
+    const currentIndex = state.value;
+    const safeIndex = currentIndex % FIXED_ROTATION.length;
+    const selectedShortCodes = FIXED_ROTATION[safeIndex];
+
+    // Step B: Update DB (Global Set)
+    await Song.updateMany({}, { is_selected: false });
+    await Song.updateMany(
+        { short_code: { $in: selectedShortCodes } },
+        { is_selected: true }
+    );
+
+    // Step C: Increment Index
+    state.value = (currentIndex + 1) % FIXED_ROTATION.length;
+    await state.save();
+
+    const newSelection = await Song.find({ is_selected: true });
+    return ApiResponse(res, 200, 'Global Shuffle (Evil) Executed', newSelection);
+};
+
+// Internal Helper: Random Saint Shuffle (Local Only, No DB Update)
+const randomShuffleInternal = async (req, res) => {
+    // Select 5 random songs per language using Aggregation
+    // This allows randomness without updating database flags
+    const distinctLanguages = await Song.distinct('language');
+    let randomSongs = [];
+
+    for (const lang of distinctLanguages) {
+        const sample = await Song.aggregate([
+            { $match: { language: lang } },
+            { $sample: { size: 5 } }
+        ]);
+        randomSongs = [...randomSongs, ...sample];
+    }
+    
+    return ApiResponse(res, 200, 'Local Shuffle (Random) Executed', randomSongs);
 };
 
 // @desc    Add a new song
