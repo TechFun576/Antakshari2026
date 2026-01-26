@@ -1,4 +1,6 @@
 const Song = require('../models/Song');
+const SystemState = require('../models/SystemState');
+const { FIXED_ROTATION } = require('../config/riggedSets');
 const ApiResponse = require('../utils/response.util');
 const { uploadOnCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 
@@ -44,6 +46,49 @@ exports.shuffleSongs = async (req, res) => {
         );
 
         // 4. Return the new list
+        const newSelection = await Song.find({ is_selected: true });
+        return ApiResponse(res, 200, 'Songs shuffled successfully', newSelection);
+
+    } catch (err) {
+        return ApiResponse(res, 500, err.message);
+    }
+};
+
+// @desc    Deterministic Shuffle Logic ("Evil Logic")
+// @route   POST /api/songs/shuffle
+// @access  Public
+exports.deterministicShuffle = async (req, res) => {
+    try {
+        // Step A: Get current shuffle index
+        let state = await SystemState.findOne({ key: "current_shuffle_index" });
+
+        if (!state) {
+            state = await SystemState.create({ key: "current_shuffle_index", value: 0 });
+        }
+
+        const currentIndex = state.value;
+
+        // Step B: Select the list from FIXED_ROTATION
+        // Ensure index is within bounds, creating a safeguard
+        const safeIndex = currentIndex % FIXED_ROTATION.length;
+        const selectedShortCodes = FIXED_ROTATION[safeIndex];
+
+        // Step C: Update the main Song collection
+        // 1. Set is_selected: false for all
+        await Song.updateMany({}, { is_selected: false });
+
+        // 2. Set is_selected: true ONLY for the songs in the chosen list
+        await Song.updateMany(
+            { short_code: { $in: selectedShortCodes } },
+            { is_selected: true }
+        );
+
+        // Step D: Update SystemState
+        // Increment the index by 1. If it reaches 4, reset to 0 (Modulo 4)
+        state.value = (currentIndex + 1) % 4; // Hardcoded 4 as per requirements, or use FIXED_ROTATION.length
+        await state.save();
+
+        // Step E: Return the selected songs to the frontend
         const newSelection = await Song.find({ is_selected: true });
         return ApiResponse(res, 200, 'Songs shuffled successfully', newSelection);
 
