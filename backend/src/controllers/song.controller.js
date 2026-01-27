@@ -168,10 +168,10 @@ exports.addSong = async (req, res) => {
         
         const songUpload = await uploadOnCloudinary(songLocalPath);
 
-        // if (!songUpload) {
-        //      console.error("Cloudinary upload failed");
-        //      return ApiResponse(res, 500, 'Failed to upload song file');
-        // }
+        if (!songUpload) {
+             console.error("Cloudinary upload failed: Response was null");
+             return ApiResponse(res, 500, 'Failed to upload song file');
+        }
 
         console.log("Cloudinary upload success:", songUpload.url);
         const url = songUpload.url;
@@ -205,6 +205,8 @@ exports.addSong = async (req, res) => {
 
         return ApiResponse(res, 201, 'Song added successfully', newSong);
     } catch (err) {
+        console.error("Error in addSong:", err); // Log full error details
+        
         // Handle duplicate short_code edge case by retrying or appending timestamp (simplified here)
         if (err.code === 11000) {
              return ApiResponse(res, 400, 'Duplicate song or short code error. Please try again.');
